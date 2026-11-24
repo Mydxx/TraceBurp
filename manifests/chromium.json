@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "TraceBurp",
+  "version": "3.4.0",
+  "description": "面向安全工程师的轻量级全屏抓包、静默响应替换、编解码与修改重放工作台（Chrome / Edge / Firefox）。",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "debugger",
+    "sidePanel",
+    "storage",
+    "unlimitedStorage",
+    "tabs",
+    "scripting",
+    "clipboardWrite",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "bg/service-worker.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "panel/panel.html"
+  },
+  "action": {
+    "default_title": "打开 TraceBurp 全屏工作台",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  }
+}

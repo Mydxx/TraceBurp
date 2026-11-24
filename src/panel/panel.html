@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TraceBurp</title>
+<link rel="stylesheet" href="panel.css">
+</head>
+<body>
+
+<div class="shell" id="shell" data-view="list">
+
+  <!-- ==================== 顶部极简控制栏 ==================== -->
+  <header class="header">
+    <div class="header-left">
+      <div class="brand-wrap">
+        <img class="brand-icon" src="../icons/icon32.png" alt="TraceBurp">
+        <span class="brand-title">TraceBurp</span>
+      </div>
+      <div class="v-sep"></div>
+      <select id="tabSelect" class="tab-picker" title="目标网页标签页（自动实时同步）"></select>
+      <button id="btnCapture" class="capture-btn off">
+        <span class="pulse-dot"></span>
+        <span id="captureLabel">开始抓包</span>
+      </button>
+      <button id="btnRecordPause" class="icon-pill hidden">暂停记录</button>
+    </div>
+
+    <div class="header-right">
+      <button id="btnInterceptToggle" class="icon-pill" title="开关断点拦截">
+        <span class="pill-dot"></span>断点拦截
+      </button>
+      <button id="btnRulesDrawer" class="icon-pill" title="断点规则 / 响应替换 / 本地 Mock / 身份预设">
+        规则 / 替换 <span id="configCount" class="mini-badge hidden">0</span>
+      </button>
+      <button id="btnTheme" class="icon-btn" title="切换浅色 / 深色主题">◐</button>
+      <div class="dropdown">
+        <button id="btnExport" class="icon-pill">导出 ▾</button>
+        <div id="exportMenu" class="menu hidden">
+          <label class="menu-check">
+            <input type="checkbox" id="chkExportRedact" checked>
+            <span>导出时脱敏 Cookie / Auth</span>
+          </label>
+          <div class="menu-sep"></div>
+          <div class="menu-item" data-export="har">导出 HAR 1.2（当前过滤）</div>
+          <div class="menu-item" data-export="json">导出 JSON（当前过滤）</div>
+          <div class="menu-item" data-export="curl">导出 cURL 脚本</div>
+          <div class="menu-item" data-export="python">导出 Python requests</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==================== 主双栏舞台 ==================== -->
+  <main class="stage" id="stage">
+
+    <!-- 左栏：实时流量列表 -->
+    <section class="panel-feed" id="panelFeed">
+      <div class="feed-top">
+        <div class="search-row">
+          <div class="search-wrap grow">
+            <span class="search-ico">⌕</span>
+            <input id="filterInput" class="search-inp" type="text"
+                   placeholder="过滤 URL / 状态码 / -host:google（按 / 聚焦）">
+            <button id="btnClearSearch" class="clear-x hidden">×</button>
+          </div>
+          <button id="btnBodySearch" class="btn btn-soft btn-xs" title="在历史请求的 Header 与 Body 中全文检索">搜正文</button>
+        </div>
+
+        <div class="chip-row">
+          <button class="chip active" id="chipHideStatic" title="隐藏图片/CSS/字体等静态资源">去静态</button>
+          <button class="chip chip-m" data-method="GET">GET</button>
+          <button class="chip chip-m" data-method="POST">POST</button>
+          <button class="chip chip-m" data-method="PUT">PUT</button>
+          <button class="chip chip-m" data-method="DELETE">DELETE</button>
+          <button class="chip chip-m" data-method="PATCH">PATCH</button>
+          <button class="chip" id="chipHasBody" title="仅显示包含请求体（Request Body）的请求">有Body</button>
+          <button class="chip" id="chip2xx" title="仅显示 2xx 成功响应">2xx</button>
+          <button class="chip" id="chipErr" title="仅显示 4xx/5xx 及失败请求">4xx/5xx</button>
+          <button class="chip" id="chipSameHost">仅本域</button>
+          <div id="hostTags" class="host-tags"></div>
+        </div>
+
+        <div class="feed-meta-row">
+          <span id="counter" class="counter">0 条</span>
+          <div class="spacer"></div>
+          <button id="btnResetFilters" class="text-btn hidden" title="重置所有筛选条件">重置过滤</button>
+          <button id="btnClear" class="text-btn">清空列表</button>
+        </div>
+      </div>
+
+      <div class="feed-body">
+        <div class="stream-viewport" id="listViewport">
+          <div class="stream-phantom" id="listPhantom"></div>
+          <div class="stream-rows" id="listRows"></div>
+          <div class="empty-card" id="streamEmpty">
+            <div class="empty-badge">TB</div>
+            <div class="empty-title">暂无流量</div>
+            <div class="empty-sub">选择目标网页点击「开始抓包」，接口请求会实时出现在这里</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="splitter" id="splitter"></div>
+
+    <!-- 右栏：报文查看（右上请求 / 右下响应） & 重放器 & 编解码 -->
+    <section class="panel-work" id="panelWork">
+      <div class="work-bar">
+        <div class="seg" id="workModeSwitch">
+          <button class="seg-item active" data-work="inspect">报文详情</button>
+          <button class="seg-item" data-work="replay">重放器 <span id="replayBadge" class="mini-badge hidden">0</span></button>
+          <button class="seg-item" data-work="codec">编解码</button>
+        </div>
+        <span id="dHeroSummary" class="hero-inline hidden"></span>
+        <span id="dSecPill" class="sec-pill hidden" title="点击查看安全提示与 JWT 解码"></span>
+        <div class="spacer"></div>
+        <div class="work-actions" id="inspectActions">
+          <button id="btnToReplay" class="btn btn-primary btn-sm" title="发送到重放器直接改包发送 (快捷键 R)" disabled>⚡ 重放</button>
+          <button id="btnQuickReplace" class="btn btn-soft btn-sm" title="固定替换该接口响应中的指定参数（类似 Burp Match & Replace）" disabled>响应替换</button>
+          <button id="btnQuickMock" class="btn btn-soft btn-sm" title="将此响应设为本地 Mock" disabled>Mock</button>
+          <button id="btnDeleteOne" class="btn btn-soft btn-sm btn-danger-txt" title="删除此条记录" disabled>删除</button>
+          <div class="dropdown">
+            <button id="btnCopyMenu" class="btn btn-soft btn-sm" disabled>复制 ▾</button>
+            <div id="copyMenu" class="menu hidden">
+              <div class="menu-item" data-copy="raw">Raw HTTP（贴 Burp）</div>
+              <div class="menu-item" data-copy="curl-bash">cURL (Bash / macOS)</div>
+              <div class="menu-item" data-copy="curl-ps">cURL (PowerShell)</div>
+              <div class="menu-item" data-copy="curl-cmd">cURL (Windows CMD)</div>
+              <div class="menu-item" data-copy="python">Python requests</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 视图 1：报文详情（默认右上 Raw 请求 + 右下 Raw 响应，一眼看全！） ===== -->
+      <div class="work-pane active" id="paneInspect">
+        <div class="empty-card" id="inspectEmpty">
+          <div class="empty-title">点选左侧任意请求</div>
+          <div class="empty-sub">上方展示完整 Raw 请求，下方展示完整 Raw 响应；划选响应参数可一键「固定替换」或「编解码」</div>
+        </div>
+
+        <div class="split-vertical hidden" id="inspectSplit">
+          <div id="secDrawer" class="sec-drawer hidden">
+            <div id="secHintsBox" class="hints-stack"></div>
+            <div id="jwtBox" class="jwt-card hidden"></div>
+          </div>
+
+          <!-- 右上：Request Raw 面板 -->
+          <div class="io-pane" id="reqPane">
+            <div class="io-bar">
+              <span class="io-title">Request</span>
+              <span id="reqBarMeta" class="io-meta"></span>
+              <div class="spacer"></div>
+              <button id="btnReqPretty" class="btn btn-soft btn-xs" title="美化请求体中的 JSON">美化 JSON</button>
+              <button id="btnCopyReqRaw" class="btn btn-soft btn-xs">复制</button>
+            </div>
+            <pre id="reqRawBox" class="raw-pre"></pre>
+          </div>
+
+          <div class="h-splitter" id="inspectHSplit"></div>
+
+          <!-- 右下：Response Raw 面板 -->
+          <div class="io-pane" id="resPane">
+            <div class="io-bar">
+              <span class="io-title">Response</span>
+              <span id="resStatusTag" class="st-tag"></span>
+              <span id="resReplacedTag" class="micro-tag rep hidden" title="该响应已由响应替换规则自动改写">已替换</span>
+              <span id="resBarMeta" class="io-meta"></span>
+              <div class="spacer"></div>
+              <input id="resSearchInp" class="inline-search" type="text" placeholder="响应内查找…">
+              <span id="resSearchNav" class="search-nav hidden">
+                <span id="resSearchCount" class="io-meta">0/0</span>
+                <button id="btnResPrev" class="btn btn-soft btn-xs" title="上一个">↑</button>
+                <button id="btnResNext" class="btn btn-soft btn-xs" title="下一个">↓</button>
+              </span>
+              <button id="btnResPretty" class="btn btn-soft btn-xs">美化 JSON</button>
+              <button id="btnResHex" class="btn btn-soft btn-xs">Hex</button>
+              <button id="btnCopyResRaw" class="btn btn-soft btn-xs">复制</button>
+            </div>
+            <div id="resBigNotice" class="big-notice hidden"><span id="resBigText"></span><button id="btnResShowFull" class="btn btn-soft btn-xs">显示完整内容</button></div>
+            <pre id="resRawBox" class="raw-pre"></pre>
+            <div id="resImgWrap" class="img-card hidden"><img id="resImg" alt="响应图片"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 视图 2：极简 Burp 式重放器 ===== -->
+      <div class="work-pane" id="paneReplay">
+        <div class="rp-tabstrip">
+          <div class="rp-tabs" id="repeaterTabs"></div>
+          <button id="btnNewRp" class="text-btn">+ 新建</button>
+        </div>
+
+        <div class="empty-card" id="replayEmpty">
+          <div class="empty-title">极简重放器</div>
+          <div class="empty-sub">选中左侧任意请求按 R 或点 ⚡，直接修改原始 HTTP 报文即可一键发送</div>
+        </div>
+
+        <div class="rp-shell hidden" id="replayBody">
+          <div class="rp-toolbar">
+            <button id="btnRpSend" class="btn btn-primary btn-sm" title="发送修改后的原始报文 (Ctrl/Cmd + Enter)">发送</button>
+            <button id="btnRpNoAuth" class="btn btn-amber btn-sm" title="自动剥离 Cookie / Authorization / Token 重发">去鉴权重发</button>
+            <div class="dropdown">
+              <button id="btnAuthSwap" class="btn btn-soft btn-sm">身份切换 ▾</button>
+              <div id="authSwapMenu" class="menu hidden"></div>
+            </div>
+            <select id="rpMode" class="select-xs" title="发送通道">
+              <option value="background">后台通道（支持改 Cookie/Origin & 绕过 CORS）</option>
+              <option value="page">页面上下文</option>
+            </select>
+            <div class="spacer"></div>
+            <div class="dropdown">
+              <button id="btnRpCopyMenu" class="btn btn-soft btn-xs">复制改后 ▾</button>
+              <div id="rpCopyMenu" class="menu hidden">
+                <div class="menu-item" data-rpcopy="curl">复制为 cURL (Bash)</div>
+                <div class="menu-item" data-rpcopy="python">复制为 Python requests</div>
+              </div>
+            </div>
+            <button id="btnRpLayout" class="text-btn" title="切换重放器左右 / 上下布局">◫</button>
+            <button id="btnRpPretty" class="text-btn" title="美化请求体里的 JSON">美化 JSON</button>
+            <button id="btnRpUndo" class="text-btn">撤销</button>
+            <button id="btnRpReset" class="text-btn">重置</button>
+          </div>
+
+          <div class="rp-split">
+            <div class="io-pane rp-req-pane">
+              <div class="io-bar">
+                <span class="io-title">Raw Request（直接修改任意字段，如 x=1 → x=2）</span>
+              </div>
+              <textarea id="rpRaw" class="raw-editor" spellcheck="false" placeholder="POST https://example.com/api HTTP/1.1&#10;Content-Type: application/json&#10;&#10;{&quot;x&quot;: 2}"></textarea>
+            </div>
+
+            <div class="io-pane rp-res-pane">
+              <div class="io-bar">
+                <span class="io-title">Response</span>
+                <span id="rpResStatus" class="st-tag"></span>
+                <span id="rpResTag" class="rp-mode-tag hidden"></span>
+                <span id="rpResDelta" class="io-meta"></span>
+                <div class="spacer"></div>
+                <div id="rpHistoryPills" class="rp-hist-pills"></div>
+                <div class="seg seg-xs" id="rpResSwitch">
+                  <button class="seg-item active" data-rpres="raw">Raw</button>
+                  <button class="seg-item" data-rpres="pretty">JSON</button>
+                  <button class="seg-item" data-rpres="diff">Diff</button>
+                </div>
+              </div>
+              <div id="rpResEmpty" class="rp-res-empty">修改左侧原始请求后按 Ctrl + Enter 发送</div>
+              <pre id="rpResRaw" class="raw-pre hidden"></pre>
+              <div id="rpResDiff" class="diff-card hidden"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 视图 3：安全工程师编解码器（支持自动识别与链式套娃） ===== -->
+      <div class="work-pane" id="paneCodec">
+        <div class="codec-shell">
+          <div class="codec-pane">
+            <div class="io-bar">
+              <span class="io-title">输入</span>
+              <span id="codecInMeta" class="io-meta">0 字符</span>
+              <div id="codecSuggest" class="codec-suggest"></div>
+              <div class="spacer"></div>
+              <button id="btnCodecSwap" class="btn btn-soft btn-xs" title="互换输入与输出">⇄ 互换</button>
+              <button id="btnCodecClear" class="btn btn-soft btn-xs">清空</button>
+            </div>
+            <textarea id="codecInput" class="raw-editor codec-ta" spellcheck="false" placeholder="粘贴任意文本、JWT、Base64、URL 编码、Unicode、Hex、HTML 实体或时间戳…&#10;也可在报文详情中直接划选文字点「编解码」带入"></textarea>
+          </div>
+
+          <div class="codec-ops" id="codecOpsBar">
+            <div class="codec-group">
+              <span class="codec-glbl">URL</span>
+              <button class="codec-btn" data-op="url_dec">解码</button>
+              <button class="codec-btn" data-op="url_enc">编码</button>
+              <button class="codec-btn" data-op="url_enc_all" title="每个字节编码为 %XX">全编码</button>
+            </div>
+            <div class="codec-group">
+              <span class="codec-glbl">Base64</span>
+              <button class="codec-btn" data-op="b64_dec" title="自动兼容标准 Base64 与 Base64URL">解码(含URL)</button>
+              <button class="codec-btn" data-op="b64_enc">编码</button>
+              <button class="codec-btn" data-op="b64url_enc">Base64URL</button>
+            </div>
+            <div class="codec-group">
+              <span class="codec-glbl">字符</span>
+              <button class="codec-btn" data-op="hex_dec">Hex 解</button>
+              <button class="codec-btn" data-op="hex_enc">Hex 编</button>
+              <button class="codec-btn" data-op="uni_dec">Unicode 解</button>
+              <button class="codec-btn" data-op="uni_enc">Unicode 编</button>
+              <button class="codec-btn" data-op="str_unesc" title="还原 \" 与 \n">反转义</button>
+              <button class="codec-btn" data-op="str_esc" title="转义双引号与换行">转义</button>
+              <button class="codec-btn" data-op="html_dec">HTML 解</button>
+              <button class="codec-btn" data-op="html_enc">HTML 编</button>
+              <button class="codec-btn" data-op="html_dec_enc" title="十进制实体 &#xx;">HTML &#x23;</button>
+            </div>
+            <div class="codec-group">
+              <span class="codec-glbl">数据 / 压缩</span>
+              <button class="codec-btn" data-op="jwt_dec">JWT 解析</button>
+              <button class="codec-btn" data-op="json_pretty">JSON 美化</button>
+              <button class="codec-btn" data-op="json_min">JSON 压缩</button>
+              <button class="codec-btn" data-op="qs_to_json">Query→JSON</button>
+              <button class="codec-btn" data-op="json_to_qs">JSON→Query</button>
+              <button class="codec-btn" data-op="gzip_dec" title="解压 Gzip+Base64 (H4sI...)">Gzip 解</button>
+              <button class="codec-btn" data-op="gzip_enc" title="Gzip 压缩并输出 Base64">Gzip 压</button>
+              <button class="codec-btn" data-op="ts_to_date">时间戳→日期</button>
+              <button class="codec-btn" data-op="date_to_ts">日期→时间戳</button>
+            </div>
+            <div class="codec-group">
+              <span class="codec-glbl">哈希 / 签名</span>
+              <button class="codec-btn" data-op="hash_md5">MD5</button>
+              <button class="codec-btn" data-op="hash_sha1">SHA-1</button>
+              <button class="codec-btn" data-op="hash_sha256">SHA-256</button>
+              <button class="codec-btn" data-op="hash_sha512">SHA-512</button>
+              <button class="codec-btn" data-op="hmac_sha256">HMAC-SHA256</button>
+              <input id="codecHmacKey" class="codec-key-inp mono" type="text" placeholder="HMAC Secret Key">
+            </div>
+          </div>
+
+          <div class="codec-pane">
+            <div class="io-bar">
+              <span class="io-title">输出</span>
+              <span id="codecOpLabel" class="io-meta"></span>
+              <div class="spacer"></div>
+              <button id="btnCodecChain" class="btn btn-primary btn-xs" title="将当前输出送回输入框继续下一层编解码">↑ 继续套娃</button>
+              <button id="btnCodecCopy" class="btn btn-soft btn-xs">复制结果</button>
+            </div>
+            <textarea id="codecOutput" class="raw-editor codec-ta" spellcheck="false" readonly placeholder="点击上方任意编解码或哈希按钮，结果实时显示在这里"></textarea>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ==================== 底部快捷键 / 断点挂起条 ==================== -->
+  <footer class="foot-hint" id="footHint">
+    <span><kbd>↑</kbd><kbd>↓</kbd> 切包</span>
+    <span><kbd>R</kbd> 重放改包</span>
+    <span><kbd>/</kbd> 搜索</span>
+    <span><kbd>Ctrl</kbd>+<kbd>Enter</kbd> 发送</span>
+    <span>响应区划选文本：一键「固定替换」或「编解码」</span>
+  </footer>
+
+  <footer class="pause-dock hidden" id="pauseDock">
+    <div class="pause-dock-hd">
+      <span class="pause-dot"></span>
+      <span>断点已挂起</span>
+      <span id="pausedCount" class="mini-badge amber">0</span>
+      <div class="spacer"></div>
+      <button id="btnPassAll" class="btn btn-soft btn-xs">全部放行</button>
+    </div>
+    <div class="pause-dock-list" id="pausedList"></div>
+  </footer>
+
+</div>
+
+<!-- ==================== 划词快捷浮条（响应区一键固定替换 / 编解码） ==================== -->
+<div id="selFloatBar" class="sel-float hidden">
+  <button id="btnSelReplace" class="sel-float-btn primary hidden">⚡ 固定替换</button>
+  <button id="btnSelRpUrlEnc" class="sel-float-btn hidden" data-rpinplace="url_enc">原位 URL 编</button>
+  <button id="btnSelRpUrlDec" class="sel-float-btn hidden" data-rpinplace="url_dec">原位 URL 解</button>
+  <button id="btnSelRpB64Enc" class="sel-float-btn hidden" data-rpinplace="b64_enc">原位 B64 编</button>
+  <button id="btnSelRpB64Dec" class="sel-float-btn hidden" data-rpinplace="b64_dec">原位 B64 解</button>
+  <button id="btnSelCodec" class="sel-float-btn">🔐 编解码</button>
+</div>
+
+<!-- ==================== 一键固定替换响应参数弹窗 ==================== -->
+<div class="modal-mask hidden" id="quickReplaceModal">
+  <div class="modal modal-sm">
+    <div class="modal-hd">
+      <span>⚡ 固定替换响应参数（Match & Replace）</span>
+      <button class="modal-x" data-close="quickReplaceModal">×</button>
+    </div>
+    <div class="modal-bd">
+      <p class="cfg-tip">命中该接口响应时将在后台静默替换，无需手动拦截放行；适合持续测试状态字段（如 <code>"code":401</code> → <code>"code":200</code>）。</p>
+      <label class="fld-lbl">匹配路径（填 <code>*</code> 表示所有接口）</label>
+      <div class="rp-url-row">
+        <input id="qrUrl" class="input-sm grow mono" type="text" placeholder="/api/auth/status">
+        <button id="btnQrAllUrl" class="btn btn-soft btn-xs" type="button">全部接口 *</button>
+      </div>
+      <label class="fld-lbl">查找内容</label>
+      <input id="qrFind" class="input-sm mono" style="width:100%" type="text" placeholder='如 "isLogin":false'>
+      <label class="fld-lbl">替换为（按 Enter 直接保存生效）</label>
+      <input id="qrReplace" class="input-sm mono" style="width:100%" type="text" placeholder='如 "isLogin":true'>
+      <div class="cfg-row" style="margin-top:10px">
+        <label class="menu-check" style="padding:0">
+          <input type="checkbox" id="qrRegex">
+          <span>正则表达式匹配</span>
+        </label>
+        <div class="spacer"></div>
+        <span class="io-meta">可选改状态码：</span>
+        <input id="qrStatus" class="input-sm mono" type="number" style="width:82px" placeholder="保持原样">
+      </div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-soft" data-close="quickReplaceModal">取消</button>
+      <button id="btnQrSave" class="btn btn-primary">保存并立即生效</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 规则 / 响应替换 / Mock / 身份预设弹窗 ==================== -->
+<div class="modal-mask hidden" id="configModal">
+  <div class="modal">
+    <div class="modal-hd">
+      <div class="seg" id="configTabs">
+        <button class="seg-item active" data-cfg="rules">断点规则</button>
+        <button class="seg-item" data-cfg="replaces">响应替换</button>
+        <button class="seg-item" data-cfg="mocks">本地 Mock</button>
+        <button class="seg-item" data-cfg="profiles">身份预设</button>
+      </div>
+      <button class="modal-x" data-close="configModal">×</button>
+    </div>
+    <div class="modal-bd">
+      <div class="cfg-pane active" data-cfgpane="rules">
+        <p class="cfg-tip">支持「请求前」与「响应后」两阶段实时拦截。也可以直接在列表悬停点 📌 一键打断点。</p>
+        <div id="rulesList" class="cfg-list"></div>
+        <button id="btnAddRule" class="btn btn-soft btn-sm">+ 添加断点规则</button>
+      </div>
+      <div class="cfg-pane" data-cfgpane="replaces">
+        <p class="cfg-tip">静默替换匹配接口的响应内容（支持纯文本或正则，Chrome/Edge 还支持同步改状态码），不弹窗不中断页面。</p>
+        <div id="replacesList" class="cfg-list"></div>
+        <button id="btnAddReplace" class="btn btn-soft btn-sm">+ 添加响应替换规则</button>
+      </div>
+      <div class="cfg-pane" data-cfgpane="mocks">
+        <p class="cfg-tip">命中本地 Mock 规则的请求将静默返回你的自定义响应，不发往服务器也不弹中断。</p>
+        <div id="mocksList" class="cfg-list"></div>
+        <button id="btnAddMock" class="btn btn-soft btn-sm">+ 添加 Mock 规则</button>
+      </div>
+      <div class="cfg-pane" data-cfgpane="profiles">
+        <p class="cfg-tip">保存测试账号的 Cookie / Authorization 等覆盖头，重放时一键切换身份验证。</p>
+        <div id="profilesList" class="cfg-list"></div>
+        <button id="btnAddProfile" class="btn btn-soft btn-sm">+ 添加身份预设</button>
+      </div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-soft" data-close="configModal">取消</button>
+      <button id="btnSaveConfig" class="btn btn-primary">保存并生效</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 断点改包弹窗 ==================== -->
+<div class="modal-mask hidden" id="pauseModal">
+  <div class="modal modal-lg">
+    <div class="modal-hd">
+      <span id="pauseModalTitle">断点改包 · 请求阶段</span>
+      <span id="pauseCountdown" class="countdown"></span>
+      <button class="modal-x" data-close="pauseModal">×</button>
+    </div>
+    <div class="modal-bd">
+      <div id="pmReqSection">
+        <div class="rp-url-row">
+          <select id="pmMethod" class="select-sm mono">
+            <option>GET</option><option>POST</option><option>PUT</option>
+            <option>PATCH</option><option>DELETE</option><option>OPTIONS</option>
+          </select>
+          <input id="pmUrl" class="input-sm grow mono" type="text">
+        </div>
+        <label class="fld-lbl">请求头</label>
+        <textarea id="pmHeaders" class="ta mono" rows="5" spellcheck="false"></textarea>
+        <label class="fld-lbl">请求体</label>
+        <textarea id="pmBody" class="ta mono" rows="5" spellcheck="false"></textarea>
+      </div>
+
+      <div id="pmResSection">
+        <div id="pmResStageNote" class="fld-lbl hidden">响应已从服务器返回，直接修改下方内容后点「修改响应后放行」：</div>
+        <details class="mock-fold" id="pmResFold">
+          <summary id="pmResSummary">直接返回自定义响应（不发往服务器）</summary>
+          <div class="rp-url-row" style="margin-top:8px">
+            <input id="pmResCode" class="input-sm mono" type="number" value="200" style="width:84px">
+            <input id="pmResType" class="input-sm grow mono" type="text" value="application/json; charset=utf-8">
+          </div>
+          <label class="fld-lbl">响应头</label>
+          <textarea id="pmResHeaders" class="ta mono" rows="3" spellcheck="false"></textarea>
+          <label class="fld-lbl">响应体</label>
+          <textarea id="pmResBody" class="ta mono" rows="6" spellcheck="false"></textarea>
+        </details>
+      </div>
+    </div>
+    <div class="modal-ft">
+      <button id="btnPmFail" class="btn btn-danger">阻断</button>
+      <button id="btnPmFulfill" class="btn btn-soft">返回 Mock</button>
+      <div class="spacer"></div>
+      <button id="btnPmRaw" class="btn btn-soft">原样放行</button>
+      <button id="btnPmSend" class="btn btn-primary">修改后放行</button>
+    </div>
+  </div>
+</div>
+
+<!-- 右键菜单 -->
+<div id="contextMenu" class="menu ctx-menu hidden"></div>
+
+<div id="toastWrap" class="toast-wrap"></div>
+
+<script type="module" src="panel.js"></script>
+</body>
+</html>

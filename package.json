@@ -1,0 +1,11 @@
+{
+  "name": "traceburp",
+  "version": "3.4.0",
+  "private": true,
+  "type": "module",
+  "description": "Full-screen & sidebar-compatible HTTP capture, API map, local auto-mock, and side-by-side request modifier/replayer for Chrome, Edge, and Firefox.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/core.test.mjs"
+  }
+}
